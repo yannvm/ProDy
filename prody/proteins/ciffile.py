@@ -313,6 +313,8 @@ def _parseMMCIFLines(atomgroup, lines, model, chain, subset,
     if isinstance(altloc_torf, str):
         if altloc_torf == 'all':
             which_altlocs = 'all'
+        elif altloc_torf == 'first':
+            which_altlocs = 'first'
         elif altloc_torf.strip() != 'A':
             LOGGER.info('Parsing alternate locations {0}.'
                         .format(altloc_torf))
@@ -351,6 +353,10 @@ def _parseMMCIFLines(atomgroup, lines, model, chain, subset,
         asize = n_atoms
 
     acount = 0
+
+    resnum_tmp = ""
+    resname_tmp = ""
+    list_atomnames_by_res = []
 
     for i, line in enumerate(lines[start:stop]):
         startswith = line.split()[fields['group_PDB']]
@@ -401,8 +407,23 @@ def _parseMMCIFLines(atomgroup, lines, model, chain, subset,
 
         #Altloc
         alt = line.split()[fields['label_alt_id']]
-        if alt not in which_altlocs and which_altlocs != 'all':
+        if alt not in which_altlocs and which_altlocs != 'all' and which_altlocs != 'first':
             continue
+        elif which_altlocs == 'first':    #Select the 1st alternate location (PDB:5DXX-res268)
+            #Same residue
+            if label_resnum == resnum_tmp and resname == resname_tmp:
+                if atomname not in list_atomnames_by_res:
+                    list_atomnames_by_res.append(atomname)
+                else:
+                    continue
+            #Two consecutive residues
+            elif label_resnum != resnum_tmp:
+                resnum_tmp = label_resnum
+                resname_tmp = resname
+                list_atomnames_by_res = [atomname]
+            #Alternate location problem (resnum equal and different resname)
+            else:
+                continue
 
         if label_resnum == '.':
             label_resnum = "0"
