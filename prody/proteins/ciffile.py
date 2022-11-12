@@ -13,13 +13,14 @@ from prody.atomic import flags
 from prody.atomic import ATOMIC_FIELDS
 from prody.utilities import openFile
 from prody import LOGGER, SETTINGS
+from prody.utilities.misctools import getMasses
 
 from .localpdb import fetchPDB
 from .starfile import parseSTARLines, StarDict, parseSTARSection
 from .cifheader import getCIFHeaderDict
 from .header import buildBiomolecules, assignSecstr, isHelix, isSheet
 
-__all__ = ['parseMMCIFStream', 'parseMMCIF']
+__all__ = ['parseMMCIFStream', 'parseMMCIF', 'writeMMCIFStream', 'writeMMCIF']
 
 
 class MMCIFParseError(Exception):
@@ -50,6 +51,19 @@ _parseMMCIFdoc = """
          alternate locations will be parsed and each will be appended as a
          distinct coordinate set, default is ``"A"``
     :type altloc: str
+    """
+
+_writeMMCIFdoc = """
+
+    :arg atoms: an object with atom and coordinate data
+
+    :arg csets: coordinate set indices, default is all coordinate sets
+
+    :arg beta: a list or array of number to be outputted in beta column
+
+    :arg occupancy: a list or array of number to be outputted in occupancy
+        column
+ 
     """
 
 _PDBSubsets = {'ca': 'ca', 'calpha': 'ca', 'bb': 'bb', 'backbone': 'bb'}
@@ -133,6 +147,7 @@ def parseMMCIFStream(stream, **kwargs):
     chain = kwargs.get('chain')
     altloc = kwargs.get('altloc', 'A')
     header = kwargs.get('header', False)
+    parsing_class = kwargs.get('parsing_class', 'auth')
     assert isinstance(header, bool), 'header must be a boolean'
 
     if model is not None:
@@ -187,7 +202,7 @@ def parseMMCIFStream(stream, **kwargs):
         if header or biomol or secondary:
             hd = getCIFHeaderDict(lines)
 
-        _parseMMCIFLines(ag, lines, model, chain, subset, altloc)
+        _parseMMCIFLines(ag, lines, model, chain, subset, altloc, parsing_class)
 
         if ag.numAtoms() > 0:
             LOGGER.report('{0} atoms and {1} coordinate set(s) were '
@@ -232,7 +247,7 @@ parseMMCIFStream.__doc__ += _parseMMCIFdoc
 
 
 def _parseMMCIFLines(atomgroup, lines, model, chain, subset,
-                     altloc_torf):
+                     altloc_torf, parsing_class):
     """Returns an AtomGroup. See also :func:`.parsePDBStream()`.
 
     :arg lines: mmCIF lines
@@ -310,10 +325,14 @@ def _parseMMCIFLines(atomgroup, lines, model, chain, subset,
         altloc_torf = True
 
     coordinates = np.zeros((asize, 3), dtype=float)
-    atomnames = np.zeros(asize, dtype=ATOMIC_FIELDS['name'].dtype)
-    resnames = np.zeros(asize, dtype=ATOMIC_FIELDS['resname'].dtype)
-    resnums = np.zeros(asize, dtype=ATOMIC_FIELDS['resnum'].dtype)
-    chainids = np.zeros(asize, dtype=ATOMIC_FIELDS['chain'].dtype)
+    auth_atomnames = np.zeros(asize, dtype=ATOMIC_FIELDS['name'].dtype)
+    label_atomnames = np.zeros(asize, dtype=ATOMIC_FIELDS['label_name'].dtype)
+    auth_resnames = np.zeros(asize, dtype=ATOMIC_FIELDS['resname'].dtype)
+    label_resnames = np.zeros(asize, dtype=ATOMIC_FIELDS['label_resname'].dtype)
+    auth_resnums = np.zeros(asize, dtype=ATOMIC_FIELDS['resnum'].dtype)
+    label_resnums = np.zeros(asize, dtype=ATOMIC_FIELDS['label_resnum'].dtype)
+    auth_chainids = np.zeros(asize, dtype=ATOMIC_FIELDS['chain'].dtype)
+    label_chainids = np.zeros(asize, dtype=ATOMIC_FIELDS['label_chain'].dtype)
     segnames = np.zeros(asize, dtype=ATOMIC_FIELDS['segment'].dtype)
     hetero = np.zeros(asize, dtype=bool)
     termini = np.zeros(asize, dtype=bool)
@@ -323,55 +342,96 @@ def _parseMMCIFLines(atomgroup, lines, model, chain, subset,
     elements = np.zeros(asize, dtype=ATOMIC_FIELDS['element'].dtype)
     bfactors = np.zeros(asize, dtype=ATOMIC_FIELDS['beta'].dtype)
     occupancies = np.zeros(asize, dtype=ATOMIC_FIELDS['occupancy'].dtype)
+    charges = np.zeros(asize, dtype=ATOMIC_FIELDS['charge'].dtype)
+
+    entity_ids = np.zeros(asize, dtype=ATOMIC_FIELDS['entity_id'].dtype)
 
     n_atoms = atomgroup.numAtoms()
     if n_atoms > 0:
         asize = n_atoms
 
     acount = 0
-    for line in lines[start:stop]:
+
+    for i, line in enumerate(lines[start:stop]):
         startswith = line.split()[fields['group_PDB']]
 
-        atomname = line.split()[fields['auth_atom_id']]
-        if atomname.startswith('"') and atomname.endswith('"'):
-            atomname = atomname[1:-1]
-        resname = line.split()[fields['auth_comp_id']]
+        #Atomname
+        auth_atomname = line.split()[fields['auth_atom_id']]
+        if auth_atomname.startswith('"') and auth_atomname.endswith('"'):
+            auth_atomname = auth_atomname[1:-1]
+        label_atomname = line.split()[fields['label_atom_id']]
+        if label_atomname.startswith('"') and label_atomname.endswith('"'):
+            label_atomname = label_atomname[1:-1]
 
+        if parsing_class == "auth":
+            atomname = auth_atomname
+        else:
+            atomname = label_atomname
+
+        #Resname
+        auth_resname = line.split()[fields['auth_comp_id']]
+        label_resname = line.split()[fields['label_comp_id']]
+        if parsing_class == "auth":
+            resname = auth_resname
+        else:
+            resname = label_resname
+
+        #Select subset
         if subset is not None:
             if not (atomname in subset and resname in protein_resnames):
                 continue
 
-        chID = line.split()[fields['auth_asym_id']]
+        #chID
+        auth_chID = line.split()[fields['auth_asym_id']]
+        label_chID = line.split()[fields['label_asym_id']]
+        if parsing_class == "auth":
+            chID = auth_chID
+        else:
+            chID = label_chID
+        
         if chain is not None:
             if isinstance(chain, str):
                 chain = chain.split(',')
             if not chID in chain:
                 continue
 
-        segID = line.split()[fields['label_asym_id']]
+        #Resnum
+        auth_resnum = line.split()[fields['auth_seq_id']]
+        label_resnum = line.split()[fields['label_seq_id']]
 
+        #Altloc
         alt = line.split()[fields['label_alt_id']]
         if alt not in which_altlocs and which_altlocs != 'all':
             continue
 
-        if alt == '.':
-            alt = ' '
+        if label_resnum == '.':
+            label_resnum = "0"
 
         coordinates[acount] = [line.split()[fields['Cartn_x']],
                                line.split()[fields['Cartn_y']],
                                line.split()[fields['Cartn_z']]]
-        atomnames[acount] = atomname
-        resnames[acount] = resname
-        resnums[acount] = line.split()[fields['auth_seq_id']]
-        chainids[acount] = chID
-        segnames[acount] = segID
+        auth_atomnames[acount] = auth_atomname
+        label_atomnames[acount] = label_atomname
+        auth_resnames[acount] = auth_resname
+        label_resnames[acount] = label_resname
+        auth_resnums[acount] = auth_resnum
+        label_resnums[acount] = label_resnum
+        auth_chainids[acount] = auth_chID
+        label_chainids[acount] = label_chID
+        segnames[acount] = label_chID
         hetero[acount] = startswith == 'HETATM' # True or False
 
-        if chainids[acount] != chainids[acount-1]: 
-            termini[acount-1] = True
+        if parsing_class == "auth":
+            if auth_chainids[acount] != auth_chainids[acount-1]: 
+                termini[acount-1] = True
+        else:
+            if label_chainids[acount] != label_chainids[acount-1]: 
+                termini[acount-1] = True
 
+        if alt == '.':
+            alt = ' '
         altlocs[acount] = alt
-        
+
         try:
             icodes[acount] = line.split()[fields['pdbx_PDB_ins_code']]
         except KeyError:
@@ -385,6 +445,23 @@ def _parseMMCIFLines(atomgroup, lines, model, chain, subset,
         bfactors[acount] = line.split()[fields['B_iso_or_equiv']]
         occupancies[acount] = line.split()[fields['occupancy']]
 
+        #Get charge
+        charge = line.split()[fields['pdbx_formal_charge']]
+        if charge == '?':
+            charges[acount] = 0
+        else:
+            try:
+                charges[acount] = int(charge)
+            except:
+                try:
+                    charges[acount] = int(charge[1] + charge[0])
+                except:
+                    charges[acount] = 0
+                    LOGGER.warn('failed to parse charge at line {0}'
+                                .format(i))
+
+        entity_ids[acount] = line.split()[fields['label_entity_id']]
+
         acount += 1
 
     if model is None:
@@ -397,11 +474,16 @@ def _parseMMCIFLines(atomgroup, lines, model, chain, subset,
     else:
         atomgroup._setCoords(coordinates[:modelSize])
 
-    atomgroup.setNames(atomnames[:modelSize])
-    atomgroup.setResnames(resnames[:modelSize])
-    atomgroup.setResnums(resnums[:modelSize])
+    atomgroup.setNames(auth_atomnames[:modelSize])
+    atomgroup.setLabelNames(label_atomnames[:modelSize])
+    atomgroup.setResnames(auth_resnames[:modelSize])
+    atomgroup.setLabelResnames(label_resnames[:modelSize])
+    atomgroup.setResnums(auth_resnums[:modelSize])
+    atomgroup.setLabelResnums(label_resnums[:modelSize])
     atomgroup.setSegnames(segnames[:modelSize])
-    atomgroup.setChids(chainids[:modelSize])
+    atomgroup.setChids(auth_chainids[:modelSize])
+    atomgroup.setLabelChids(label_chainids[:modelSize])
+
     atomgroup.setFlags('hetatm', hetero[:modelSize])
     atomgroup.setFlags('pdbter', termini[:modelSize])
     atomgroup.setAltlocs(altlocs[:modelSize])
@@ -409,10 +491,12 @@ def _parseMMCIFLines(atomgroup, lines, model, chain, subset,
     atomgroup.setSerials(serials[:modelSize])
 
     atomgroup.setElements(elements[:modelSize])
-    from prody.utilities.misctools import getMasses
     atomgroup.setMasses(getMasses(elements[:modelSize]))
     atomgroup.setBetas(bfactors[:modelSize])
     atomgroup.setOccupancies(occupancies[:modelSize])
+
+    atomgroup.setCharges(charges[:modelSize])
+    atomgroup.setEntityID(entity_ids[:modelSize])
 
     anisou = None
     siguij = None
@@ -423,11 +507,11 @@ def _parseMMCIFLines(atomgroup, lines, model, chain, subset,
         LOGGER.warn("No anisotropic B factors found")
     else:
         anisou = np.zeros((acount, 6),
-                          dtype=ATOMIC_FIELDS['anisou'].dtype)
-        
+                        dtype=ATOMIC_FIELDS['anisou'].dtype)
+
         if "_atom_site_anisotrop.U[1][1]_esd" in data[0].keys():
             siguij = np.zeros((acount, 6),
-                              dtype=ATOMIC_FIELDS['siguij'].dtype)
+                            dtype=ATOMIC_FIELDS['siguij'].dtype)
 
         for entry in data:
             try:
@@ -435,7 +519,7 @@ def _parseMMCIFLines(atomgroup, lines, model, chain, subset,
                     entry["_atom_site_anisotrop.id"]))[0][0]
             except:
                 continue
-            
+                
             anisou[index, 0] = entry['_atom_site_anisotrop.U[1][1]']
             anisou[index, 1] = entry['_atom_site_anisotrop.U[2][2]']
             anisou[index, 2] = entry['_atom_site_anisotrop.U[3][3]']
@@ -464,3 +548,324 @@ def _parseMMCIFLines(atomgroup, lines, model, chain, subset,
             atomgroup.addCoordset(coordinates[n*modelSize:(n+1)*modelSize])
 
     return atomgroup
+
+
+def writeMMCIF(filename, atoms, csets=None, **kwargs):
+    """Write *atoms* in MMCIF format to a file with name *filename* and return
+    *filename*.  If *filename* ends with :file:`.gz`, a compressed file will
+    be written.
+
+    :arg renumber: whether to renumber atoms with serial indices
+        Default is **True**
+    :type renumber: bool
+    """
+
+    if not ('.cif' in filename or '.cif.gz' in filename or '.mmcif' in filename or '.mmcif.gz' in filename):
+        filename += '.cif'
+    out = openFile(filename, 'wt')
+    writeMMCIFStream(out, atoms, csets, **kwargs)
+    out.close()
+    return filename
+
+
+def writeMMCIFStream(stream, atoms, csets=None, **kwargs):
+    """Write *atoms* in MMCIF format to a *stream*.
+
+    :arg stream: anything that implements a :meth:`write` method (e.g. file,
+        buffer, stdout)
+
+    :arg renumber: whether to renumber atoms with serial indices
+        Default is **True**
+    :type renumber: bool
+    """
+
+    renumber = kwargs.get('renumber', True)
+
+    remark = str(atoms)
+    try:
+        coordsets = atoms.getCoordsets(csets)
+    except AttributeError:
+        try:
+            coordsets = atoms.getCoords()
+        except AttributeError:
+            raise TypeError('atoms must be an object with coordinate sets')
+        if coordsets is not None:
+            coordsets = [coordsets]
+    else:
+        if coordsets.ndim == 2:
+            coordsets = [coordsets]
+    if coordsets is None:
+        raise ValueError('atoms does not have any coordinate sets')
+
+    try:
+        acsi = atoms.getACSIndex()
+    except AttributeError:
+        try:
+            atoms = atoms.getAtoms()
+        except AttributeError:
+            raise TypeError('atoms must be an Atomic instance or an object '
+                            'with `getAtoms` method')
+        else:
+            if atoms is None:
+                raise ValueError('atoms is not associated with an Atomic '
+                                 'instance')
+            try:
+                acsi = atoms.getACSIndex()
+            except AttributeError:
+                raise TypeError('atoms does not have a valid type')
+
+    try:
+        atoms.getIndex()
+    except AttributeError:
+        pass
+    else:
+        atoms = atoms.select('all')
+
+    n_atoms = atoms.numAtoms()
+
+    occupancy = kwargs.get('occupancy')
+    if occupancy is None:
+        occupancies = atoms.getOccupancies()
+        if occupancies is None:
+            occupancies = np.zeros(n_atoms, float)
+    else:
+        occupancies = np.array(occupancy)
+        if len(occupancies) != n_atoms:
+            raise ValueError('len(occupancy) must be equal to number of atoms')
+
+    beta = kwargs.get('beta')
+    if beta is None:
+        bfactors = atoms.getBetas()
+        if bfactors is None:
+            bfactors = np.zeros(n_atoms, float)
+    else:
+        bfactors = np.array(beta)
+        if len(bfactors) != n_atoms:
+            raise ValueError('len(beta) must be equal to number of atoms')
+
+    atomnames = atoms.getNames()
+    if atomnames is None:
+        raise ValueError('atom names are not set')
+
+    label_atomnames = atoms.getLabelNames()
+    if label_atomnames is None:
+        label_atomnames = ['X'] * n_atoms
+
+    s_or_u = np.array(['a']).dtype.char
+
+    altlocs = atoms.getAltlocs()
+    if altlocs is None:
+        altlocs = np.zeros(n_atoms, s_or_u + '1')
+
+    resnames = atoms.getResnames()
+    if resnames is None:
+        resnames = ['UNK'] * n_atoms
+
+    label_resnames = atoms.getLabelResnames()
+    if label_resnames is None:
+        label_resnames = ['UNK'] * n_atoms
+
+    chainids = atoms.getChids()
+    if chainids is None:
+        chainids = np.zeros(n_atoms, s_or_u + '1')
+
+    label_chainids = atoms.getLabelChids()
+    if label_chainids is None:
+        label_chainids = np.zeros(n_atoms, s_or_u + '1')
+
+    resnums = atoms.getResnums()
+    if resnums is None:
+        resnums = np.ones(n_atoms, int)
+
+    label_resnums = atoms.getLabelResnums()
+    if label_resnums is None:
+        label_resnums = ["1"] * n_atoms
+    else:
+        label_resnums = np.array(label_resnums).astype('str')
+
+    serials = atoms.getSerials()
+    if serials is None or renumber:
+        serials = np.arange(n_atoms, dtype=int) + 1
+
+    icodes = atoms.getIcodes()
+    if icodes is None:
+        icodes = np.zeros(n_atoms, s_or_u + '1')
+
+    hetero = ['ATOM'] * n_atoms
+    heteroflags = atoms.getFlags('hetatm')
+    if heteroflags is None:
+        heteroflags = atoms.getFlags('hetero')
+    if heteroflags is not None:
+        hetero = np.array(hetero, s_or_u + '6')
+        hetero[heteroflags] = 'HETATM'
+
+    elements = atoms.getElements()
+    if elements is None:
+        elements = np.zeros(n_atoms, s_or_u + '1')
+
+    charges = atoms.getCharges()
+    charges2 = np.empty(n_atoms, s_or_u + '2')
+    if charges is not None:
+        for i, charge in enumerate(charges):
+            charges2[i] = str(abs(int(charge)))
+
+            if np.sign(charge) == -1:
+                charges2[i] = '-' + charges2[i]
+            else:
+                charges2[i] = '+' + charges2[i]
+
+            if charges2[i] == '+0':
+                charges2[i] = '?'
+
+    anisous = atoms.getAnisous()
+    if anisous is not None:
+        anisous = np.array(anisous * 10000, dtype=int)
+
+    entity_ids = atoms.getEntityID()
+    if entity_ids is None:
+        entity_ids = [1] * n_atoms
+
+    # write remarks
+    stream.write('REMARK {0}\n'.format(remark))
+
+    # write atoms
+    write = stream.write
+
+    list_group_PDB = [] 
+    list_id = [] 
+    list_type_symbol = [] 
+    list_label_atom_id = [] 
+    list_label_alt_id = [] 
+    list_label_comp_id = [] 
+    list_label_asym_id = [] 
+    list_label_entity_id = [] 
+    list_label_seq_id = [] 
+    list_pdbx_PDB_ins_code = [] 
+    list_Cartn_x = [] 
+    list_Cartn_y = [] 
+    list_Cartn_z = [] 
+    list_occupancy = [] 
+    list_B_iso_or_equiv = [] 
+    list_pdbx_formal_charge = [] 
+    list_auth_seq_id = [] 
+    list_auth_comp_id = [] 
+    list_auth_asym_id = [] 
+    list_auth_atom_id = [] 
+    list_pdbx_PDB_model_num = [] 
+
+    for m, coords in enumerate(coordsets):
+        for i, xyz in enumerate(coords):
+
+            if altlocs[i] == " ":
+                altlocs[i] = "."
+
+            if label_chainids[i] == "":
+                label_chainids[i] = "."
+        
+            if icodes[i] == "":
+                icodes[i] = "?"
+
+            if label_resnums[i] == "0":
+                label_resnums[i] = "."
+
+            list_group_PDB.append(hetero[i])
+            list_id.append(serials[i]) 
+            list_type_symbol.append(elements[i])
+            list_label_atom_id.append(label_atomnames[i])
+            list_label_alt_id.append(altlocs[i])
+            list_label_comp_id.append(label_resnames[i])
+            list_label_asym_id.append(label_chainids[i])
+            list_label_entity_id.append(entity_ids[i])
+            list_label_seq_id.append(label_resnums[i])
+            list_pdbx_PDB_ins_code.append(icodes[i]) 
+            list_Cartn_x.append(xyz[0]) 
+            list_Cartn_y.append(xyz[1]) 
+            list_Cartn_z.append(xyz[2]) 
+            list_occupancy.append(occupancies[i])
+            list_B_iso_or_equiv.append(bfactors[i]) 
+            list_pdbx_formal_charge.append(charges2[i])
+            list_auth_seq_id.append(resnums[i])
+            list_auth_comp_id.append(resnames[i])
+            list_auth_asym_id.append(chainids[i])
+            list_auth_atom_id.append(atomnames[i]) 
+            list_pdbx_PDB_model_num.append(m + 1)
+    
+    #Get the column widths
+    max_group_PDB = len(max(list_group_PDB, key=len))
+    max_id = len(str(max(list_id)))
+    max_type_symbol = len(max(list_type_symbol, key=len))
+    max_label_atom_id = len(max(list_label_atom_id, key=len))
+    max_label_alt_id = len(max(list_label_alt_id, key=len))
+    max_label_comp_id = len(max(list_label_comp_id, key=len))
+    max_label_asym_id = len(max(list_label_asym_id, key=len))
+    max_label_entity_id = len(str(max(list_label_entity_id)))
+    max_label_seq_id = len(max(list_label_seq_id, key=len))
+    max_pdbx_PDB_ins_code = len(max(list_pdbx_PDB_ins_code, key=len))
+    max_Cartn_x = max([len(str(x).split(".")[0]) for x in list_Cartn_x]) + 4
+    max_Cartn_y = max([len(str(x).split(".")[0]) for x in list_Cartn_y]) + 4
+    max_Cartn_z = max([len(str(x).split(".")[0]) for x in list_Cartn_z]) + 4
+    max_occupancy = 4
+    max_B_iso_or_equiv = len(str(max(list_B_iso_or_equiv)).split(".")[0]) + 3
+    max_pdbx_formal_charge = len(max(list_pdbx_formal_charge, key=len))
+    max_auth_seq_id = len(str(max(list_auth_seq_id)))
+    max_auth_comp_id = len(max(list_auth_comp_id, key=len))
+    max_auth_asym_id = len(max(list_auth_asym_id, key=len))
+    max_auth_atom_id = len(max(list_auth_atom_id, key=len))
+    max_pdbx_PDB_model_num = len(str(max(list_pdbx_PDB_model_num)))
+
+    write("loop_\n"
+          "_atom_site.group_PDB \n"
+          "_atom_site.id \n"
+          "_atom_site.type_symbol \n"
+          "_atom_site.label_atom_id \n"
+          "_atom_site.label_alt_id \n"
+          "_atom_site.label_comp_id \n"
+          "_atom_site.label_asym_id \n"
+          "_atom_site.label_entity_id \n"
+          "_atom_site.label_seq_id \n"
+          "_atom_site.pdbx_PDB_ins_code \n"
+          "_atom_site.Cartn_x \n"
+          "_atom_site.Cartn_y \n"
+          "_atom_site.Cartn_z \n"
+          "_atom_site.occupancy \n"
+          "_atom_site.B_iso_or_equiv \n"
+          "_atom_site.pdbx_formal_charge \n"
+          "_atom_site.auth_seq_id \n"
+          "_atom_site.auth_comp_id \n"
+          "_atom_site.auth_asym_id \n"
+          "_atom_site.auth_atom_id \n"
+          "_atom_site.pdbx_PDB_model_num \n")
+
+    for i, _ in enumerate(list_group_PDB):
+        write(f"{list_group_PDB[i]:<{max_group_PDB}s} "
+              f"{list_id[i]:<{max_id}d} "
+              f"{list_type_symbol[i]:<{max_type_symbol}s} "
+              f"{list_label_atom_id[i]:<{max_label_atom_id}s} "
+              f"{list_label_alt_id[i]:<{max_label_alt_id}s} "
+              f"{list_label_comp_id[i]:<{max_label_comp_id}s} "
+              f"{list_label_asym_id[i]:<{max_label_asym_id}s} "
+              f"{list_label_entity_id[i]:<{max_label_entity_id}d} "
+              f"{list_label_seq_id[i]:<{max_label_seq_id}s} "
+              f"{list_pdbx_PDB_ins_code[i]:<{max_pdbx_PDB_ins_code}s} "
+              f"{list_Cartn_x[i]:<{max_Cartn_x}.3f} "
+              f"{list_Cartn_y[i]:<{max_Cartn_y}.3f} "
+              f"{list_Cartn_z[i]:<{max_Cartn_z}.3f} "
+              f"{list_occupancy[i]:<{max_occupancy}.2f} "
+              f"{list_B_iso_or_equiv[i]:<{max_B_iso_or_equiv}.2f} "
+              f"{list_pdbx_formal_charge[i]:<{max_pdbx_formal_charge}s} "
+              f"{list_auth_seq_id[i]:<{max_auth_seq_id}d} "
+              f"{list_auth_comp_id[i]:<{max_auth_comp_id}s} "
+              f"{list_auth_asym_id[i]:<{max_auth_asym_id}s} "
+              f"{list_auth_atom_id[i]:<{max_auth_atom_id}s} "
+              f"{list_pdbx_PDB_model_num[i]:<{max_pdbx_PDB_model_num}d} \n")
+        
+    write("#")
+
+
+writeMMCIFStream.__doc__ += _writeMMCIFdoc
+
+
+writeMMCIF.__doc__ += _writeMMCIFdoc + """
+    :arg autoext: when not present, append extension :file:`.cif` to *filename*
+"""
+

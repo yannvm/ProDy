@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """This module defines functions for parsing and writing `PDB files`_.
-
 .. _PDB files: http://www.wwpdb.org/documentation/format32/v3.2.html"""
 
 from collections import defaultdict
@@ -36,19 +35,16 @@ _parsePQRdoc = """
     :arg title: title of the :class:`.AtomGroup` instance, default is the
         PDB filename or PDB identifier
     :type title: str
-
     :arg ag: :class:`.AtomGroup` instance for storing data parsed from PDB
         file, number of atoms in *ag* and number of atoms parsed from the PDB
         file must be the same and atoms in *ag* and those in PDB file must
         be in the same order.  Non-coordinate data stored in *ag* will be
         overwritten with those parsed from the file.
     :type ag: :class:`.AtomGroup`
-
     :arg chain: chain identifiers for parsing specific chains, e.g.
         ``chain='A'``, ``chain='B'``, ``chain='DE'``, by default all
         chains are parsed
     :type chain: str
-
     :arg subset: a predefined keyword to parse subset of atoms, valid keywords
         are ``'calpha'`` (``'ca'``), ``'backbone'`` (``'bb'``), or **None**
         (read all atoms), e.g. ``subset='bb'``
@@ -58,17 +54,14 @@ _parsePQRdoc = """
 _parsePDBdoc = _parsePQRdoc + """
     :arg model: model index or None (read all models), e.g. ``model=10``
     :type model: int, list
-
     :arg header: if **True** PDB header content will be parsed and returned
     :type header: bool
-
     :arg altloc: if a location indicator is passed, such as ``'A'`` or ``'B'``,
          only indicated alternate locations will be parsed as the single
          coordinate set of the AtomGroup,  if *altloc* is set **True** all
          alternate locations will be parsed and each will be appended as a
          distinct coordinate set, default is ``"A"``
     :type altloc: str
-
     :arg biomol: if **True**, biomolecules are obtained by transforming the
         coordinates using information from header section will be returned.
         This option uses :func:`.buildBiomolecules` and as noted there, 
@@ -77,14 +70,11 @@ _parsePDBdoc = _parsePQRdoc + """
         different segment names.
         Default is **False**
     :type biomol: bool
-
     :arg secondary: if **True**, secondary structure information from header
         section will be assigned to atoms.
         Default is **False**
     :type secondary: bool
-
     If ``model=0`` and ``header=True``, return header dictionary only.
-
     """
 
 _PDBSubsets = {'ca': 'ca', 'calpha': 'ca', 'bb': 'bb', 'backbone': 'bb'}
@@ -92,16 +82,12 @@ _PDBSubsets = {'ca': 'ca', 'calpha': 'ca', 'bb': 'bb', 'backbone': 'bb'}
 def parsePDB(*pdb, **kwargs):
     """Returns an :class:`.AtomGroup` and/or dictionary containing header data
     parsed from a PDB file.
-
     This function extends :func:`.parsePDBStream`.
-
     See :ref:`parsepdb` for a detailed usage example.
-
     :arg pdb: one PDB identifier or filename, or a list of them.
         If needed, PDB files are downloaded using :func:`.fetchPDB()` function.
     
     You can also provide arguments that you would like passed on to fetchPDB().
-
     :arg extend_biomol: whether to extend the list of results with a list
         rather than appending, which can create a mixed list, 
         especially when biomol=True.
@@ -255,7 +241,6 @@ parsePDB.__doc__ += _parsePDBdoc
 def parsePDBStream(stream, **kwargs):
     """Returns an :class:`.AtomGroup` and/or dictionary containing header data
     parsed from a stream of PDB lines.
-
     :arg stream: Anything that implements the method ``readlines``
         (e.g. :class:`file`, buffer, stdin)""" 
 
@@ -373,7 +358,6 @@ parsePDBStream.__doc__ += _parsePDBdoc
 
 def parsePQR(filename, **kwargs):
     """Returns an :class:`.AtomGroup` containing data parsed from PDB lines.
-
     :arg filename: a PQR filename
     :type filename: str"""
 
@@ -431,7 +415,6 @@ parsePQR.__doc__ += _parsePQRdoc
 def _parsePDBLines(atomgroup, lines, split, model, chain, subset,
                    altloc_torf, format='PDB', bonds=None):
     """Returns an AtomGroup. See also :func:`.parsePDBStream()`.
-
     :arg lines: PDB/PQR lines
     :arg split: starting index for coordinate data lines"""
 
@@ -1112,16 +1095,11 @@ ANISOULINE_H36 = ('%-6s%5s %-4s%1s%-3s%2s%4s%1s '
                   '%4s%2s%2s\n')
 
 _writePDBdoc = """
-
     :arg atoms: an object with atom and coordinate data
-
     :arg csets: coordinate set indices, default is all coordinate sets
-
     :arg beta: a list or array of number to be outputted in beta column
-
     :arg occupancy: a list or array of number to be outputted in occupancy
         column
-
     :arg hybrid36: whether to use hybrid36 format for atoms with serial
         greater than 99999. Hexadecimal is used otherwise.
         Default is False
@@ -1131,10 +1109,8 @@ _writePDBdoc = """
 def writeChainsList(chains, filename):
     """
     Write a text file containing a list of chains that can be parsed.
-
     :arg chains: a list of :class:`.Chain` objects
     :type chains: list
-
     :arg filename: the name of the file to be written
     :type filename: str
     """
@@ -1148,10 +1124,8 @@ def writeChainsList(chains, filename):
 def parseChainsList(filename):
     """
     Parse a set of PDBs and extract chains based on a list in a text file.
-
     :arg filename: the name of the file to be read
     :type filename: str
-
     Returns: lists containing an :class:'.AtomGroup' for each PDB, 
     the headers for those PDBs, and the requested :class:`.Chain` objects
     """
@@ -1188,10 +1162,8 @@ def parseChainsList(filename):
 
 def writePDBStream(stream, atoms, csets=None, **kwargs):
     """Write *atoms* in PDB format to a *stream*.
-
     :arg stream: anything that implements a :meth:`write` method (e.g. file,
         buffer, stdout)
-
     :arg renumber: whether to renumber atoms with serial indices
         Default is **True**
     :type renumber: bool
@@ -1310,7 +1282,7 @@ def writePDBStream(stream, atoms, csets=None, **kwargs):
     else:
         elements = np.char.rjust(elements, 2)
 
-    segments = atoms._getSegnames()
+    segments = atoms.getSegnames()
     if segments is None:
         segments = np.zeros(n_atoms, s_or_u + '6')
 
@@ -1491,6 +1463,9 @@ def writePDBStream(stream, atoms, csets=None, **kwargs):
 
                     resnum = int(str(final_resnum)[:4], 16)
 
+            #Correct "." from cif
+            if segments[i] == ".":
+                segments[i] = " "
 
             write(pdbline % (hetero[i], serial,
                              atomnames[i], altlocs[i],
@@ -1524,7 +1499,6 @@ def writePDB(filename, atoms, csets=None, autoext=True, **kwargs):
     """Write *atoms* in PDB format to a file with name *filename* and return
     *filename*.  If *filename* ends with :file:`.gz`, a compressed file will
     be written.
-
     :arg renumber: whether to renumber atoms with serial indices
         Default is **True**
     :type renumber: bool

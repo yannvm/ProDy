@@ -120,6 +120,7 @@ HVNONE = ['_hv', 'segindex', 'chindex', 'resindex']
 
 ATOMIC_FIELDS = {
     'name':      Field('name', DTYPE + '6', selstr=('name CA CB',)),
+    'label_name':      Field('label_name', DTYPE + '6', selstr=('label_name CA CB',), meth_pl='LabelNames'),
     'altloc':    Field('altloc', DTYPE + '1',
                        doc='alternate location indicator',
                        selstr=('altloc A B', 'altloc _'),),
@@ -128,6 +129,9 @@ ATOMIC_FIELDS = {
     'chain':     Field('chain', DTYPE + '6',  doc='chain identifier',
                        meth='Chid', none=HVNONE, synonym='chid',
                        selstr=('chain A', 'chid A B C', 'chain _')),
+    'label_chain':     Field('label_chain', DTYPE + '6',  doc='label chain identifier',
+                       meth='lab_Chid', none=HVNONE, synonym='label_chid',
+                       selstr=('label_chain A', 'label_chid A B C', 'label_chain _'), meth_pl='LabelChids'),
     'element':   Field('element', DTYPE + '2', doc='element symbol',
                        selstr=('element C O N',)),
     'occupancy': Field('occupancy', float,
@@ -135,10 +139,16 @@ ATOMIC_FIELDS = {
                        selstr=('occupancy 1', 'occupancy > 0')),
     'resname':   Field('resname', DTYPE + '6', doc='residue name',
                        selstr=('resname ALA GLY',)),
+    'label_resname':   Field('label_resname', DTYPE + '6', doc='label residue name',
+                       selstr=('label_resname ALA GLY',), meth_pl='LabelResnames'),
     'resnum':    Field('resnum', int, doc='residue number', none=HVNONE,
                        selstr=('resnum 1 2 3', 'resnum 120A 120B',
                                'resnum 10 to 20', 'resnum 10:20:2',
                                'resnum < 10'), synonym='resid'),
+    'label_resnum':    Field('label_resnum', int, doc='label residue number', none=HVNONE,
+                       selstr=('label_resnum 1 2 3', 'label_resnum 120A 120B',
+                               'label_resnum 10 to 20', 'label_resnum 10:20:2',
+                               'label_resnum < 10'), synonym='label_resid', meth_pl='LabelResnums'),
     'secondary': Field('secondary', DTYPE + '1',
                        doc='secondary structure assignment',
                        meth='Secstr', synonym='secstr',
@@ -229,6 +239,8 @@ ATOMIC_FIELDS = {
                        doc='number of bonds',
                        selstr=['numbonds 0', 'numbonds 1'],
                        readonly=True, private=True),
+    'entity_id':    Field('entity_id', int, doc='entity id', none=HVNONE,
+                       selstr=('entity_id 1'), meth_pl='EntityID')
 }
 
 
