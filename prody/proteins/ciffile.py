@@ -363,11 +363,11 @@ def _parseMMCIFLines(atomgroup, lines, model, chain, subset,
 
         #Atomname
         auth_atomname = line.split()[fields['auth_atom_id']]
-        if auth_atomname.startswith('"') and auth_atomname.endswith('"'):
-            auth_atomname = auth_atomname[1:-1]
+        #if auth_atomname.startswith('"') and auth_atomname.endswith('"'):
+        #    auth_atomname = auth_atomname[1:-1]
         label_atomname = line.split()[fields['label_atom_id']]
-        if label_atomname.startswith('"') and label_atomname.endswith('"'):
-            label_atomname = label_atomname[1:-1]
+        #if label_atomname.startswith('"') and label_atomname.endswith('"'):
+        #    label_atomname = label_atomname[1:-1]
 
         if parsing_class == "auth":
             atomname = auth_atomname
@@ -601,6 +601,7 @@ def writeMMCIFStream(stream, atoms, csets=None, **kwargs):
     """
 
     renumber = kwargs.get('renumber', True)
+    anisous_flag = kwargs.get('anisous_flag', False)
 
     remark = str(atoms)
     try:
@@ -739,8 +740,6 @@ def writeMMCIFStream(stream, atoms, csets=None, **kwargs):
                 charges2[i] = '?'
 
     anisous = atoms.getAnisous()
-    if anisous is not None:
-        anisous = np.array(anisous * 10000, dtype=int)
 
     entity_ids = atoms.getEntityID()
     if entity_ids is None:
@@ -752,65 +751,43 @@ def writeMMCIFStream(stream, atoms, csets=None, **kwargs):
     # write atoms
     write = stream.write
 
-    list_group_PDB = [] 
-    list_id = [] 
-    list_type_symbol = [] 
-    list_label_atom_id = [] 
-    list_label_alt_id = [] 
-    list_label_comp_id = [] 
-    list_label_asym_id = [] 
-    list_label_entity_id = [] 
-    list_label_seq_id = [] 
-    list_pdbx_PDB_ins_code = [] 
-    list_Cartn_x = [] 
-    list_Cartn_y = [] 
-    list_Cartn_z = [] 
-    list_occupancy = [] 
-    list_B_iso_or_equiv = [] 
-    list_pdbx_formal_charge = [] 
-    list_auth_seq_id = [] 
-    list_auth_comp_id = [] 
-    list_auth_asym_id = [] 
-    list_auth_atom_id = [] 
-    list_pdbx_PDB_model_num = [] 
+    #Number of NMR sets
+    nb_sets = len(coordsets)
+    nb_atoms = len(coordsets[0])
 
+    list_group_PDB = list(hetero) * nb_sets
+    list_id = list(serials) * nb_sets
+    list_type_symbol = list(elements) * nb_sets
+    list_label_atom_id = list(label_atomnames) * nb_sets
+    altlocs[altlocs == " "] = "."
+    list_label_alt_id = list(altlocs) * nb_sets
+    list_label_comp_id = list(label_resnames) * nb_sets
+    label_chainids[label_chainids == ""] = "."
+    list_label_asym_id = list(label_chainids) * nb_sets
+    list_label_entity_id = list(entity_ids) * nb_sets
+    label_resnums[label_resnums == "0"] = "."
+    list_label_seq_id = list(label_resnums) * nb_sets
+    icodes[icodes == ""] = "?"
+    list_pdbx_PDB_ins_code = list(icodes) * nb_sets
+    list_occupancy = list(occupancies) * nb_sets
+    list_B_iso_or_equiv = list(bfactors) * nb_sets
+    list_pdbx_formal_charge = list(charges2) * nb_sets
+    list_auth_seq_id = list(resnums) * nb_sets
+    list_auth_comp_id = list(resnames) * nb_sets
+    list_auth_asym_id = list(chainids) * nb_sets
+    list_auth_atom_id = list(atomnames) * nb_sets
+
+    list_Cartn_x = []
+    list_Cartn_y = []
+    list_Cartn_z = []
+    list_pdbx_PDB_model_num = []
     for m, coords in enumerate(coordsets):
-        for i, xyz in enumerate(coords):
+        list_Cartn_x += list(coords[:,0])
+        list_Cartn_y += list(coords[:,1])
+        list_Cartn_z += list(coords[:,2])
+        list_pdbx_PDB_model_num += [m+1] * nb_atoms
 
-            if altlocs[i] == " ":
-                altlocs[i] = "."
 
-            if label_chainids[i] == "":
-                label_chainids[i] = "."
-        
-            if icodes[i] == "":
-                icodes[i] = "?"
-
-            if label_resnums[i] == "0":
-                label_resnums[i] = "."
-
-            list_group_PDB.append(hetero[i])
-            list_id.append(serials[i]) 
-            list_type_symbol.append(elements[i])
-            list_label_atom_id.append(label_atomnames[i])
-            list_label_alt_id.append(altlocs[i])
-            list_label_comp_id.append(label_resnames[i])
-            list_label_asym_id.append(label_chainids[i])
-            list_label_entity_id.append(entity_ids[i])
-            list_label_seq_id.append(label_resnums[i])
-            list_pdbx_PDB_ins_code.append(icodes[i]) 
-            list_Cartn_x.append(xyz[0]) 
-            list_Cartn_y.append(xyz[1]) 
-            list_Cartn_z.append(xyz[2]) 
-            list_occupancy.append(occupancies[i])
-            list_B_iso_or_equiv.append(bfactors[i]) 
-            list_pdbx_formal_charge.append(charges2[i])
-            list_auth_seq_id.append(resnums[i])
-            list_auth_comp_id.append(resnames[i])
-            list_auth_asym_id.append(chainids[i])
-            list_auth_atom_id.append(atomnames[i]) 
-            list_pdbx_PDB_model_num.append(m + 1)
-    
     #Get the column widths
     max_group_PDB = len(max(list_group_PDB, key=len))
     max_id = len(str(max(list_id)))
@@ -879,9 +856,63 @@ def writeMMCIFStream(stream, atoms, csets=None, **kwargs):
               f"{list_auth_asym_id[i]:<{max_auth_asym_id}s} "
               f"{list_auth_atom_id[i]:<{max_auth_atom_id}s} "
               f"{list_pdbx_PDB_model_num[i]:<{max_pdbx_PDB_model_num}d} \n")
-        
     write("#")
 
+    if anisous is not None and anisous_flag:
+        anisotrop_U11 = anisous[:,0]
+        anisotrop_U22 = anisous[:,1]
+        anisotrop_U33 = anisous[:,2]
+        anisotrop_U12 = anisous[:,3]
+        anisotrop_U13 = anisous[:,4]
+        anisotrop_U23 = anisous[:,5]
+        max_anisotrop_U11 = max([len(str(x).split(".")[0]) for x in anisotrop_U11]) + 5
+        max_anisotrop_U22 = max([len(str(x).split(".")[0]) for x in anisotrop_U22]) + 5
+        max_anisotrop_U33 = max([len(str(x).split(".")[0]) for x in anisotrop_U33]) + 5
+        max_anisotrop_U12 = max([len(str(x).split(".")[0]) for x in anisotrop_U12]) + 5
+        max_anisotrop_U13 = max([len(str(x).split(".")[0]) for x in anisotrop_U13]) + 5
+        max_anisotrop_U23 = max([len(str(x).split(".")[0]) for x in anisotrop_U23]) + 5
+
+        write("loop_\n"
+              "_atom_site_anisotrop.id \n"
+              "_atom_site_anisotrop.type_symbol \n"
+              "_atom_site_anisotrop.pdbx_label_atom_id \n"
+              "_atom_site_anisotrop.pdbx_label_alt_id \n"
+              "_atom_site_anisotrop.pdbx_label_comp_id \n"
+              "_atom_site_anisotrop.pdbx_label_asym_id \n"
+              "_atom_site_anisotrop.pdbx_label_seq_id \n"
+              "_atom_site_anisotrop.pdbx_PDB_ins_code \n"
+              "_atom_site_anisotrop.U[1][1] \n"
+              "_atom_site_anisotrop.U[2][2] \n"
+              "_atom_site_anisotrop.U[3][3] \n"
+              "_atom_site_anisotrop.U[1][2] \n"
+              "_atom_site_anisotrop.U[1][3] \n"
+              "_atom_site_anisotrop.U[2][3] \n"
+              "_atom_site_anisotrop.pdbx_auth_seq_id \n"
+              "_atom_site_anisotrop.pdbx_auth_comp_id \n"
+              "_atom_site_anisotrop.pdbx_auth_asym_id \n"
+              "_atom_site_anisotrop.pdbx_auth_atom_id \n")
+
+        for i, _ in enumerate(list_group_PDB):
+            if anisotrop_U11[i] != 0 and anisotrop_U22[i] != 0 and anisotrop_U33[i] != 0 and anisotrop_U12[i] != 0 and anisotrop_U13[i] != 0 and anisotrop_U23[i] != 0:
+                write(f"{list_id[i]:<{max_id}d} "
+                    f"{list_type_symbol[i]:<{max_type_symbol}s} "
+                    f"{list_label_atom_id[i]:<{max_label_atom_id}s} "
+                    f"{list_label_alt_id[i]:<{max_label_alt_id}s} "
+                    f"{list_label_comp_id[i]:<{max_label_comp_id}s} "
+                    f"{list_label_asym_id[i]:<{max_label_asym_id}s} "
+                    f"{list_label_seq_id[i]:<{max_label_seq_id}s} "
+                    f"{list_pdbx_PDB_ins_code[i]:<{max_pdbx_PDB_ins_code}s} "
+                    f"{anisotrop_U11[i]:<{max_anisotrop_U11}.4f} "
+                    f"{anisotrop_U22[i]:<{max_anisotrop_U22}.4f} "
+                    f"{anisotrop_U33[i]:<{max_anisotrop_U33}.4f} "
+                    f"{anisotrop_U12[i]:<{max_anisotrop_U12}.4f} "
+                    f"{anisotrop_U13[i]:<{max_anisotrop_U13}.4f} "
+                    f"{anisotrop_U23[i]:<{max_anisotrop_U23}.4f} "
+                    f"{list_auth_seq_id[i]:<{max_auth_seq_id}d} "
+                    f"{list_auth_comp_id[i]:<{max_auth_comp_id}s} "
+                    f"{list_auth_asym_id[i]:<{max_auth_asym_id}s} "
+                    f"{list_auth_atom_id[i]:<{max_auth_atom_id}s} \n")
+        write("#")
 
 writeMMCIFStream.__doc__ += _writeMMCIFdoc
 

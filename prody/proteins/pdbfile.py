@@ -1170,6 +1170,7 @@ def writePDBStream(stream, atoms, csets=None, **kwargs):
     """
 
     renumber = kwargs.get('renumber', True)
+    anisous_flag = kwargs.get('anisous_flag', False)
 
     remark = str(atoms)
     try:
@@ -1475,7 +1476,7 @@ def writePDBStream(stream, atoms, csets=None, **kwargs):
                              occupancies[i], bfactors[i],
                              segments[i], elements[i], charges2[i]))
 
-            if anisous is not None:
+            if anisous is not None and anisous_flag:
                 anisou = anisous[i]
 
                 write(anisouline % ("ANISOU", serial,
@@ -1504,8 +1505,8 @@ def writePDB(filename, atoms, csets=None, autoext=True, **kwargs):
     :type renumber: bool
     """
 
-    if not (filename.lower().endswith('.pdb') or filename.lower().endswith('.pdb.gz') or
-            filename.lower().endswith('.ent') or filename.lower().endswith('.ent.gz')):
+    if not (filename.endswith('.pdb') or filename.endswith('.pdb.gz') or
+            filename.endswith('.ent') or filename.endswith('.ent.gz')):
         filename += '.pdb'
     out = openFile(filename, 'wt')
     writePDBStream(out, atoms, csets, **kwargs)
@@ -1591,7 +1592,7 @@ def writePQRStream(stream, atoms, **kwargs):
             for item2 in sorted_sheet[i-num_strands:i]:
                 item2.append(num_strands)
 
-    num_strands = len(num_strands_list)
+    num_strands = item1[1]
     for item2 in sorted_sheet[i-num_strands+1:]:
         item2.append(num_strands)
 
