@@ -20,7 +20,7 @@ from .starfile import parseSTARLines, StarDict, parseSTARSection
 from .cifheader import getCIFHeaderDict
 from .header import buildBiomolecules, assignSecstr, isHelix, isSheet
 
-__all__ = ['parseMMCIFStream', 'parseMMCIF', 'writeMMCIFStream', 'writeMMCIF']
+__all__ = ['parseMMCIFStream', 'parseMMCIF', 'writeMMCIFStream', 'writeMMCIF', 'writePDBXMMCIFStream', 'writePDBXMMCIF']
 
 
 class MMCIFParseError(Exception):
@@ -580,7 +580,6 @@ def writeMMCIF(filename, atoms, csets=None, **kwargs):
         Default is **True**
     :type renumber: bool
     """
-
     if not ('.cif' in filename or '.cif.gz' in filename or '.mmcif' in filename or '.mmcif.gz' in filename):
         filename += '.cif'
     out = openFile(filename, 'wt')
@@ -599,7 +598,6 @@ def writeMMCIFStream(stream, atoms, csets=None, **kwargs):
         Default is **True**
     :type renumber: bool
     """
-
     renumber = kwargs.get('renumber', True)
     anisous_flag = kwargs.get('anisous_flag', False)
 
@@ -745,12 +743,346 @@ def writeMMCIFStream(stream, atoms, csets=None, **kwargs):
     if entity_ids is None:
         entity_ids = [1] * n_atoms
 
+    # write file
+    write = stream.write
+    
     # write remarks
-    stream.write('REMARK {0}\n'.format(remark))
+    write('# {0}\n'.format(remark))
+    write("#\n")
+    write(f"data_{remark.split()[-1]}\n")
+    write(f"_entry.id {remark.split()[-1]}\n")
+    write("#\n")
 
     # write atoms
-    write = stream.write
+    #Number of NMR sets
+    nb_sets = len(coordsets)
+    nb_atoms = len(coordsets[0])
 
+    list_group_PDB = list(hetero) * nb_sets
+    list_id = list(serials) * nb_sets
+    list_type_symbol = list(elements) * nb_sets
+    list_label_atom_id = list(label_atomnames) * nb_sets
+    altlocs[altlocs == " "] = "."
+    list_label_alt_id = list(altlocs) * nb_sets
+    list_label_comp_id = list(label_resnames) * nb_sets
+    label_chainids[label_chainids == ""] = "."
+    list_label_asym_id = list(label_chainids) * nb_sets
+    list_label_entity_id = list(entity_ids) * nb_sets
+    label_resnums[label_resnums == "0"] = "."
+    list_label_seq_id = list(label_resnums) * nb_sets
+    icodes[icodes == ""] = "?"
+    list_pdbx_PDB_ins_code = list(icodes) * nb_sets
+    list_occupancy = list(occupancies) * nb_sets
+    list_B_iso_or_equiv = list(bfactors) * nb_sets
+    list_pdbx_formal_charge = list(charges2) * nb_sets
+    list_auth_asym_id = list(chainids) * nb_sets
+
+    list_Cartn_x = []
+    list_Cartn_y = []
+    list_Cartn_z = []
+    list_pdbx_PDB_model_num = []
+    for m, coords in enumerate(coordsets):
+        list_Cartn_x += list(coords[:,0])
+        list_Cartn_y += list(coords[:,1])
+        list_Cartn_z += list(coords[:,2])
+        list_pdbx_PDB_model_num += [m+1] * nb_atoms
+
+
+    #Get the column widths
+    max_group_PDB = len(max(list_group_PDB, key=len))
+    max_id = len(str(max(list_id)))
+    max_type_symbol = len(max(list_type_symbol, key=len))
+    max_label_atom_id = len(max(list_label_atom_id, key=len))
+    max_label_alt_id = len(max(list_label_alt_id, key=len))
+    max_label_comp_id = len(max(list_label_comp_id, key=len))
+    max_label_asym_id = len(max(list_label_asym_id, key=len))
+    max_label_entity_id = len(str(max(list_label_entity_id)))
+    max_label_seq_id = len(max(list_label_seq_id, key=len))
+    max_pdbx_PDB_ins_code = len(max(list_pdbx_PDB_ins_code, key=len))
+    max_Cartn_x = max([len(str(x).split(".")[0]) for x in list_Cartn_x]) + 4
+    max_Cartn_y = max([len(str(x).split(".")[0]) for x in list_Cartn_y]) + 4
+    max_Cartn_z = max([len(str(x).split(".")[0]) for x in list_Cartn_z]) + 4
+    max_occupancy = 4
+    max_B_iso_or_equiv = len(str(max(list_B_iso_or_equiv)).split(".")[0]) + 3
+    max_pdbx_formal_charge = len(max(list_pdbx_formal_charge, key=len))
+    max_auth_asym_id = len(max(list_auth_asym_id, key=len))
+    max_pdbx_PDB_model_num = len(str(max(list_pdbx_PDB_model_num)))
+
+    write("loop_\n"
+          "_atom_site.group_PDB \n"
+          "_atom_site.id \n"
+          "_atom_site.type_symbol \n"
+          "_atom_site.label_atom_id \n"
+          "_atom_site.label_alt_id \n"
+          "_atom_site.label_comp_id \n"
+          "_atom_site.label_asym_id \n"
+          "_atom_site.label_entity_id \n"
+          "_atom_site.label_seq_id \n"
+          "_atom_site.pdbx_PDB_ins_code \n"
+          "_atom_site.Cartn_x \n"
+          "_atom_site.Cartn_y \n"
+          "_atom_site.Cartn_z \n"
+          "_atom_site.occupancy \n"
+          "_atom_site.B_iso_or_equiv \n"
+          "_atom_site.pdbx_formal_charge \n"
+          "_atom_site.auth_asym_id \n"
+          "_atom_site.pdbx_PDB_model_num \n")
+
+    for i, _ in enumerate(list_group_PDB):
+        write(f"{list_group_PDB[i]:<{max_group_PDB}s} "
+              f"{list_id[i]:<{max_id}d} "
+              f"{list_type_symbol[i]:<{max_type_symbol}s} "
+              f"{list_label_atom_id[i]:<{max_label_atom_id}s} "
+              f"{list_label_alt_id[i]:<{max_label_alt_id}s} "
+              f"{list_label_comp_id[i]:<{max_label_comp_id}s} "
+              f"{list_label_asym_id[i]:<{max_label_asym_id}s} "
+              f"{list_label_entity_id[i]:<{max_label_entity_id}d} "
+              f"{list_label_seq_id[i]:<{max_label_seq_id}s} "
+              f"{list_pdbx_PDB_ins_code[i]:<{max_pdbx_PDB_ins_code}s} "
+              f"{list_Cartn_x[i]:<{max_Cartn_x}.3f} "
+              f"{list_Cartn_y[i]:<{max_Cartn_y}.3f} "
+              f"{list_Cartn_z[i]:<{max_Cartn_z}.3f} "
+              f"{list_occupancy[i]:<{max_occupancy}.2f} "
+              f"{list_B_iso_or_equiv[i]:<{max_B_iso_or_equiv}.2f} "
+              f"{list_pdbx_formal_charge[i]:<{max_pdbx_formal_charge}s} "
+              f"{list_auth_asym_id[i]:<{max_auth_asym_id}s} "
+              f"{list_pdbx_PDB_model_num[i]:<{max_pdbx_PDB_model_num}d} \n")
+    write("#")
+
+    if anisous is not None and anisous_flag:
+        anisotrop_U11 = anisous[:,0]
+        anisotrop_U22 = anisous[:,1]
+        anisotrop_U33 = anisous[:,2]
+        anisotrop_U12 = anisous[:,3]
+        anisotrop_U13 = anisous[:,4]
+        anisotrop_U23 = anisous[:,5]
+        max_anisotrop_U11 = max([len(str(x).split(".")[0]) for x in anisotrop_U11]) + 5
+        max_anisotrop_U22 = max([len(str(x).split(".")[0]) for x in anisotrop_U22]) + 5
+        max_anisotrop_U33 = max([len(str(x).split(".")[0]) for x in anisotrop_U33]) + 5
+        max_anisotrop_U12 = max([len(str(x).split(".")[0]) for x in anisotrop_U12]) + 5
+        max_anisotrop_U13 = max([len(str(x).split(".")[0]) for x in anisotrop_U13]) + 5
+        max_anisotrop_U23 = max([len(str(x).split(".")[0]) for x in anisotrop_U23]) + 5
+
+        write("loop_\n"
+              "_atom_site_anisotrop.id \n"
+              "_atom_site_anisotrop.type_symbol \n"
+              "_atom_site_anisotrop.pdbx_label_atom_id \n"
+              "_atom_site_anisotrop.pdbx_label_alt_id \n"
+              "_atom_site_anisotrop.pdbx_label_comp_id \n"
+              "_atom_site_anisotrop.pdbx_label_asym_id \n"
+              "_atom_site_anisotrop.pdbx_label_seq_id \n"
+              "_atom_site_anisotrop.pdbx_PDB_ins_code \n"
+              "_atom_site_anisotrop.U[1][1] \n"
+              "_atom_site_anisotrop.U[2][2] \n"
+              "_atom_site_anisotrop.U[3][3] \n"
+              "_atom_site_anisotrop.U[1][2] \n"
+              "_atom_site_anisotrop.U[1][3] \n"
+              "_atom_site_anisotrop.U[2][3] \n"
+              "_atom_site_anisotrop.pdbx_auth_asym_id \n")
+
+        for i, _ in enumerate(list_group_PDB):
+            if anisotrop_U11[i] != 0 and anisotrop_U22[i] != 0 and anisotrop_U33[i] != 0 and anisotrop_U12[i] != 0 and anisotrop_U13[i] != 0 and anisotrop_U23[i] != 0:
+                write(f"{list_id[i]:<{max_id}d} "
+                    f"{list_type_symbol[i]:<{max_type_symbol}s} "
+                    f"{list_label_atom_id[i]:<{max_label_atom_id}s} "
+                    f"{list_label_alt_id[i]:<{max_label_alt_id}s} "
+                    f"{list_label_comp_id[i]:<{max_label_comp_id}s} "
+                    f"{list_label_asym_id[i]:<{max_label_asym_id}s} "
+                    f"{list_label_seq_id[i]:<{max_label_seq_id}s} "
+                    f"{list_pdbx_PDB_ins_code[i]:<{max_pdbx_PDB_ins_code}s} "
+                    f"{anisotrop_U11[i]:<{max_anisotrop_U11}.4f} "
+                    f"{anisotrop_U22[i]:<{max_anisotrop_U22}.4f} "
+                    f"{anisotrop_U33[i]:<{max_anisotrop_U33}.4f} "
+                    f"{anisotrop_U12[i]:<{max_anisotrop_U12}.4f} "
+                    f"{anisotrop_U13[i]:<{max_anisotrop_U13}.4f} "
+                    f"{anisotrop_U23[i]:<{max_anisotrop_U23}.4f} "
+                    f"{list_auth_asym_id[i]:<{max_auth_asym_id}s} \n")
+        write("#")
+
+
+def writePDBXMMCIF(filename, atoms, csets=None, **kwargs):
+    """Write *atoms* in PDBXMMCIF format to a file with name *filename* and return
+    *filename*.  If *filename* ends with :file:`.gz`, a compressed file will
+    be written.
+
+    :arg renumber: whether to renumber atoms with serial indices
+        Default is **True**
+    :type renumber: bool
+    """
+    if not ('.cif' in filename or '.cif.gz' in filename or '.mmcif' in filename or '.mmcif.gz' in filename):
+        filename += '.cif'
+    out = openFile(filename, 'wt')
+    writePDBXMMCIFStream(out, atoms, csets, **kwargs)
+    out.close()
+    return filename
+
+
+def writePDBXMMCIFStream(stream, atoms, csets=None, **kwargs):
+    """Write *atoms* in PDBXMMCIF format to a *stream*.
+
+    :arg stream: anything that implements a :meth:`write` method (e.g. file,
+        buffer, stdout)
+
+    :arg renumber: whether to renumber atoms with serial indices
+        Default is **True**
+    :type renumber: bool
+    """
+    renumber = kwargs.get('renumber', True)
+    anisous_flag = kwargs.get('anisous_flag', False)
+
+    remark = str(atoms)
+    try:
+        coordsets = atoms.getCoordsets(csets)
+    except AttributeError:
+        try:
+            coordsets = atoms.getCoords()
+        except AttributeError:
+            raise TypeError('atoms must be an object with coordinate sets')
+        if coordsets is not None:
+            coordsets = [coordsets]
+    else:
+        if coordsets.ndim == 2:
+            coordsets = [coordsets]
+    if coordsets is None:
+        raise ValueError('atoms does not have any coordinate sets')
+
+    try:
+        acsi = atoms.getACSIndex()
+    except AttributeError:
+        try:
+            atoms = atoms.getAtoms()
+        except AttributeError:
+            raise TypeError('atoms must be an Atomic instance or an object '
+                            'with `getAtoms` method')
+        else:
+            if atoms is None:
+                raise ValueError('atoms is not associated with an Atomic '
+                                 'instance')
+            try:
+                acsi = atoms.getACSIndex()
+            except AttributeError:
+                raise TypeError('atoms does not have a valid type')
+
+    try:
+        atoms.getIndex()
+    except AttributeError:
+        pass
+    else:
+        atoms = atoms.select('all')
+
+    n_atoms = atoms.numAtoms()
+
+    occupancy = kwargs.get('occupancy')
+    if occupancy is None:
+        occupancies = atoms.getOccupancies()
+        if occupancies is None:
+            occupancies = np.zeros(n_atoms, float)
+    else:
+        occupancies = np.array(occupancy)
+        if len(occupancies) != n_atoms:
+            raise ValueError('len(occupancy) must be equal to number of atoms')
+
+    beta = kwargs.get('beta')
+    if beta is None:
+        bfactors = atoms.getBetas()
+        if bfactors is None:
+            bfactors = np.zeros(n_atoms, float)
+    else:
+        bfactors = np.array(beta)
+        if len(bfactors) != n_atoms:
+            raise ValueError('len(beta) must be equal to number of atoms')
+
+    atomnames = atoms.getNames()
+    if atomnames is None:
+        raise ValueError('atom names are not set')
+
+    label_atomnames = atoms.getLabelNames()
+    if label_atomnames is None:
+        label_atomnames = ['X'] * n_atoms
+
+    s_or_u = np.array(['a']).dtype.char
+
+    altlocs = atoms.getAltlocs()
+    if altlocs is None:
+        altlocs = np.zeros(n_atoms, s_or_u + '1')
+
+    resnames = atoms.getResnames()
+    if resnames is None:
+        resnames = ['UNK'] * n_atoms
+
+    label_resnames = atoms.getLabelResnames()
+    if label_resnames is None:
+        label_resnames = ['UNK'] * n_atoms
+
+    chainids = atoms.getChids()
+    if chainids is None:
+        chainids = np.zeros(n_atoms, s_or_u + '1')
+
+    label_chainids = atoms.getLabelChids()
+    if label_chainids is None:
+        label_chainids = np.zeros(n_atoms, s_or_u + '1')
+
+    resnums = atoms.getResnums()
+    if resnums is None:
+        resnums = np.ones(n_atoms, int)
+
+    label_resnums = atoms.getLabelResnums()
+    if label_resnums is None:
+        label_resnums = ["1"] * n_atoms
+    else:
+        label_resnums = np.array(label_resnums).astype('str')
+
+    serials = atoms.getSerials()
+    if serials is None or renumber:
+        serials = np.arange(n_atoms, dtype=int) + 1
+
+    icodes = atoms.getIcodes()
+    if icodes is None:
+        icodes = np.zeros(n_atoms, s_or_u + '1')
+
+    hetero = ['ATOM'] * n_atoms
+    heteroflags = atoms.getFlags('hetatm')
+    if heteroflags is None:
+        heteroflags = atoms.getFlags('hetero')
+    if heteroflags is not None:
+        hetero = np.array(hetero, s_or_u + '6')
+        hetero[heteroflags] = 'HETATM'
+
+    elements = atoms.getElements()
+    if elements is None:
+        elements = np.zeros(n_atoms, s_or_u + '1')
+
+    charges = atoms.getCharges()
+    charges2 = np.empty(n_atoms, s_or_u + '2')
+    if charges is not None:
+        for i, charge in enumerate(charges):
+            charges2[i] = str(abs(int(charge)))
+
+            if np.sign(charge) == -1:
+                charges2[i] = '-' + charges2[i]
+            else:
+                charges2[i] = '+' + charges2[i]
+
+            if charges2[i] == '+0':
+                charges2[i] = '?'
+
+    anisous = atoms.getAnisous()
+
+    entity_ids = atoms.getEntityID()
+    if entity_ids is None:
+        entity_ids = [1] * n_atoms
+
+    # write file
+    write = stream.write
+    
+    # write remarks
+    write('# {0}\n'.format(remark))
+    write("#\n")
+    write(f"data_{remark.split()[-1]}\n")
+    write(f"_entry.id {remark.split()[-1]}\n")
+    write("#\n")
+
+    # write atoms
     #Number of NMR sets
     nb_sets = len(coordsets)
     nb_atoms = len(coordsets[0])
@@ -913,6 +1245,7 @@ def writeMMCIFStream(stream, atoms, csets=None, **kwargs):
                     f"{list_auth_asym_id[i]:<{max_auth_asym_id}s} "
                     f"{list_auth_atom_id[i]:<{max_auth_atom_id}s} \n")
         write("#")
+
 
 writeMMCIFStream.__doc__ += _writeMMCIFdoc
 
